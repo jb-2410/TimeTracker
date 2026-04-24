@@ -37,12 +37,12 @@
         </div>
         <div class="stat-card">
             <div class="stat-label">Days Logged</div>
-            <div class="stat-value" id="statDays" style="color:var(--red)">0 / 5</div>
+            <div class="stat-value" id="statDays">0 / 5</div>
             <div class="stat-sub">days this week</div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Daily Average</div>
-            <div class="stat-value" id="statAvg" style="color:var(--dark-red)">—</div>
+            <div class="stat-value" id="statAvg">—</div>
             <div class="stat-sub">hours per day</div>
         </div>
     </div>
@@ -319,6 +319,27 @@
         else setSyncStatus('idle');
     }
 
+    function resetDay(dateKey) {
+        const weekData = getWeekData();
+        if (!weekData[dateKey]) return;
+        ['startTime', 'lunchStart', 'lunchEnd', 'endTime'].forEach(field => {
+            delete weekData[dateKey][field];
+            const input = document.getElementById(`inp_${dateKey}_${FIELD_ID[field]}`);
+            if (input) input.value = '';
+        });
+        saveWeekData(weekData);
+        applyValidation(dateKey, weekData[dateKey]);
+        const el = document.getElementById('hrs_' + dateKey);
+        if (el) el.textContent = '—';
+        let weekMins = 0, daysLogged = 0;
+        Object.values(weekData).forEach(day => {
+            const m = calcDay(day);
+            if (m !== null) { weekMins += m; daysLogged++; }
+        });
+        updateSummary(weekMins, daysLogged);
+        debouncedSync();
+    }
+
     // ===== Render =====
 
     function renderWeek() {
@@ -347,10 +368,11 @@
             if (dayMins !== null) { weekMins += dayMins; daysLogged++; }
 
             const card = document.createElement('div');
-            card.className = 'day-card' + (isToday ? ' today' : '');
+            card.className = `day-card day-${i}${isToday ? ' today' : ''}`;
 
             card.innerHTML = `
                 <div class="day-header">
+                    <button class="btn-reset-day" onclick="resetDay('${dateKey}')" title="Reset time fields">&#8635;</button>
                     ${isToday ? '<span class="today-badge">Today</span>' : ''}
                     <div class="day-name">${dayName}</div>
                     <div class="day-date">${fmtShort(dayDate)}</div>
@@ -425,13 +447,18 @@
         document.getElementById('statTotal').textContent = minsToStr(weekMins) || '0h 00m';
         document.getElementById('statTotalDecimal').textContent =
             (minsToDecimal(weekMins) || 0).toFixed(2) + ' hours';
-        document.getElementById('statDays').textContent = daysLogged + ' / 5';
 
+        const daysEl = document.getElementById('statDays');
+        daysEl.textContent = daysLogged + ' / 5';
+        daysEl.style.color = daysLogged === 5 ? '#059669' : daysLogged >= 3 ? '#D97706' : '#DC2626';
+
+        const avgEl = document.getElementById('statAvg');
         if (daysLogged > 0) {
-            const avg = Math.round(weekMins / daysLogged);
-            document.getElementById('statAvg').textContent = minsToStr(avg);
+            avgEl.textContent = minsToStr(Math.round(weekMins / daysLogged));
+            avgEl.style.color = '#0891B2';
         } else {
-            document.getElementById('statAvg').textContent = '—';
+            avgEl.textContent = '—';
+            avgEl.style.color = '';
         }
     }
 
