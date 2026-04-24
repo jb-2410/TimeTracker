@@ -22,6 +22,8 @@
     <div class="week-label" id="weekLabel"></div>
     <button class="nav-btn" onclick="changeWeek(1)">Next &#8594;</button>
     <button class="today-btn" onclick="goToToday()">Today</button>
+    <span class="sync-pill idle" id="syncPill">No Sync</span>
+    <button class="sync-btn" onclick="openSettings()">&#9881; Sync Setup</button>
 </div>
 
 <main>
@@ -53,7 +55,30 @@
     </div>
 </main>
 
-<footer>Time Tracker &bull; Data saved locally</footer>
+<footer>Time Tracker &bull; Data saved locally &amp; synced to GitHub</footer>
+
+<div class="modal-backdrop" id="settingsModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">GitHub Sync Setup</div>
+        </div>
+        <div class="modal-field">
+            <label>Personal Access Token</label>
+            <input type="password" id="patInput" placeholder="github_pat_...">
+            <p class="modal-hint">
+                Go to <code>github.com/settings/tokens</code> &rarr; Fine-grained tokens &rarr; New token.<br>
+                Set repository access to <code>TimeTracker</code> only, then grant
+                <strong>Contents: Read &amp; Write</strong>. Paste the token above.<br><br>
+                Your token is stored only in this browser and never committed to the repo.
+            </p>
+        </div>
+        <hr class="modal-divider">
+        <div class="modal-actions">
+            <button class="btn btn-clear" onclick="closeSettings()">Cancel</button>
+            <button class="btn btn-export" onclick="savePat()">Save &amp; Sync</button>
+        </div>
+    </div>
+</div>
 
 <div class="toast" id="toast"></div>
 
@@ -62,6 +87,12 @@
 
     // Maps data field names to their DOM input ID suffixes.
     const FIELD_ID = { startTime: 'start', lunchStart: 'lunchStart', lunchEnd: 'lunchEnd', endTime: 'end' };
+
+    // GitHub sync
+    const GH_API = 'https://api.github.com/repos/jb-2410/TimeTracker/contents/data/timedata.json';
+    let ghPat = localStorage.getItem('gh_pat') || '';
+    let ghFileSha = null;
+    let syncTimeout = null;
 
     let currentWeekStart = getMonday(new Date());
 
@@ -179,6 +210,116 @@
         err.textContent = msg;
         err.classList.toggle('visible', isError);
     }
+
+    // ===== GitHub Sync =====
+
+    function utf8ToBase64(str) {
+        const bytes = new TextEncoder().encode(str);
+        let binary = '';
+        bytes.forEach(b => binary += String.fromCharCode(b));
+        return btoa(binary);
+    }
+
+    function base64ToUtf8(b64) {
+        const binary = atob(b64.replace(/\n/g, ''));
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return new TextDecoder().decode(bytes);
+    }
+
+    function setSyncStatus(state, msg) {
+        const pill = document.getElementById('syncPill');
+        if (!pill) return;
+        pill.className = 'sync-pill ' + state;
+        const labels = { idle: 'No Sync', syncing: 'Syncing…', synced: 'Synced', error: 'Sync Error' };
+        pill.textContent = msg || labels[state] || state;
+    }
+
+    async function loadFromGitHub() {
+        if (!ghPat) { setSyncStatus('idle'); return; }
+        setSyncStatus('syncing', 'Loading…');
+        try {
+            const res = await fetch(GH_API, {
+                headers: { 'Authorization': `Bearer ${ghPat}`, 'Accept': 'application/vnd.github.v3+json' }
+            });
+            if (res.status === 404) { setSyncStatus('synced'); return; }
+            if (!res.ok) { setSyncStatus('error'); return; }
+            const json = await res.json();
+            ghFileSha = json.sha;
+            const data = JSON.parse(base64ToUtf8(json.content));
+            Object.entries(data).forEach(([k, v]) => {
+                if (k.startsWith('lfc_')) localStorage.setItem(k, JSON.stringify(v));
+            });
+            setSyncStatus('synced');
+            renderWeek();
+        } catch {
+            setSyncStatus('error');
+        }
+    }
+
+    async function syncToGitHub() {
+        if (!ghPat) return;
+        const allData = {};
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('lfc_') && !k.startsWith('lfc_autoexport')) {
+                try { allData[k] = JSON.parse(localStorage.getItem(k)); } catch {}
+            }
+        }
+        const body = {
+            message: `Update time data ${new Date().toISOString().split('T')[0]}`,
+            content: utf8ToBase64(JSON.stringify(allData, null, 2)),
+            ...(ghFileSha ? { sha: ghFileSha } : {})
+        };
+        try {
+            const res = await fetch(GH_API, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${ghPat}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+            if (res.ok) {
+                const json = await res.json();
+                ghFileSha = json.content.sha;
+                setSyncStatus('synced');
+            } else {
+                setSyncStatus('error');
+            }
+        } catch {
+            setSyncStatus('error');
+        }
+    }
+
+    function debouncedSync() {
+        if (!ghPat) return;
+        setSyncStatus('syncing');
+        clearTimeout(syncTimeout);
+        syncTimeout = setTimeout(syncToGitHub, 1500);
+    }
+
+    function openSettings() {
+        document.getElementById('patInput').value = ghPat;
+        document.getElementById('settingsModal').classList.add('open');
+    }
+
+    function closeSettings() {
+        document.getElementById('settingsModal').classList.remove('open');
+    }
+
+    function savePat() {
+        const val = document.getElementById('patInput').value.trim();
+        ghPat = val;
+        if (val) localStorage.setItem('gh_pat', val);
+        else localStorage.removeItem('gh_pat');
+        closeSettings();
+        if (val) loadFromGitHub();
+        else setSyncStatus('idle');
+    }
+
+    // ===== Render =====
 
     function renderWeek() {
         const weekData = getWeekData();
@@ -313,6 +454,7 @@
             if (m !== null) { weekMins += m; daysLogged++; }
         });
         updateSummary(weekMins, daysLogged);
+        debouncedSync();
     }
 
     function changeWeek(dir) {
@@ -332,13 +474,14 @@
         localStorage.removeItem('lfc_' + weekKey(currentWeekStart));
         renderWeek();
         showToast('Week cleared');
+        debouncedSync();
     }
 
     function exportToExcel() {
         const allKeys = [];
         for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
-            if (k.startsWith('lfc_')) allKeys.push(k);
+            if (k && k.startsWith('lfc_') && !k.startsWith('lfc_autoexport')) allKeys.push(k);
         }
         allKeys.sort();
 
@@ -418,7 +561,7 @@
         XLSX.utils.book_append_sheet(wb, ws2, 'Weekly Summary');
 
         const today = new Date();
-        const filename = `LFC_TimeTracker_${localDateStr(today)}.xlsx`;
+        const filename = `TimeTracker_${localDateStr(today)}.xlsx`;
         XLSX.writeFile(wb, filename);
         showToast('Excel file exported!');
     }
@@ -477,6 +620,7 @@
     updateAutoExportStatus();
     setInterval(checkAutoExport, 60000);   // Poll every minute
     setInterval(updateAutoExportStatus, 60000);
+    loadFromGitHub();
 </script>
 </body>
 </html>
