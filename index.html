@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Time Tracker</title>
-    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -405,7 +405,7 @@
                     <div class="field-group">
                         <label>Start Time</label>
                         <div class="time-input-row">
-                            <input type="time" id="inp_${dateKey}_start" value="${d.startTime||''}"
+                            <input type="time" step="300" id="inp_${dateKey}_start" value="${d.startTime||''}"
                                 onchange="save('${dateKey}','startTime',this.value)">
                             <button class="btn-now" tabindex="-1" onclick="setNow('${dateKey}','startTime')">Now</button>
                         </div>
@@ -414,7 +414,7 @@
                     <div class="field-group">
                         <label>Lunch Start</label>
                         <div class="time-input-row">
-                            <input type="time" id="inp_${dateKey}_lunchStart" value="${d.lunchStart||''}"
+                            <input type="time" step="300" id="inp_${dateKey}_lunchStart" value="${d.lunchStart||''}"
                                 onchange="save('${dateKey}','lunchStart',this.value)">
                             <button class="btn-now" tabindex="-1" onclick="setNow('${dateKey}','lunchStart')">Now</button>
                         </div>
@@ -423,7 +423,7 @@
                     <div class="field-group">
                         <label>Lunch End</label>
                         <div class="time-input-row">
-                            <input type="time" id="inp_${dateKey}_lunchEnd" value="${d.lunchEnd||''}"
+                            <input type="time" step="300" id="inp_${dateKey}_lunchEnd" value="${d.lunchEnd||''}"
                                 onchange="save('${dateKey}','lunchEnd',this.value)">
                             <button class="btn-now" tabindex="-1" onclick="setNow('${dateKey}','lunchEnd')">Now</button>
                         </div>
@@ -433,7 +433,7 @@
                     <div class="field-group">
                         <label>End Time</label>
                         <div class="time-input-row">
-                            <input type="time" id="inp_${dateKey}_end" value="${d.endTime||''}"
+                            <input type="time" step="300" id="inp_${dateKey}_end" value="${d.endTime||''}"
                                 onchange="save('${dateKey}','endTime',this.value)">
                             <button class="btn-now" tabindex="-1" onclick="setNow('${dateKey}','endTime')">Now</button>
                         </div>
