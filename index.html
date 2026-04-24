@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Time Tracker</title>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header>
+    <div class="header-inner">
+        <div class="crest">⏱</div>
+        <h1>Time Tracker</h1>
+        <div class="motto">Track · Log · Export</div>
+    </div>
+</header>
+
+<div class="week-nav">
+    <button class="nav-btn" onclick="changeWeek(-1)">&#8592; Prev</button>
+    <div class="week-label" id="weekLabel"></div>
+    <button class="nav-btn" onclick="changeWeek(1)">Next &#8594;</button>
+    <button class="today-btn" onclick="goToToday()">Today</button>
+</div>
+
+<main>
+    <div class="days-grid" id="daysGrid"></div>
+
+    <div class="summary-row">
+        <div class="stat-card primary">
+            <div class="stat-label">Weekly Total</div>
+            <div class="stat-value" id="statTotal">0h 00m</div>
+            <div class="stat-sub" id="statTotalDecimal">0.00 hours</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Days Logged</div>
+            <div class="stat-value" id="statDays" style="color:var(--red)">0 / 5</div>
+            <div class="stat-sub">days this week</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Daily Average</div>
+            <div class="stat-value" id="statAvg" style="color:var(--dark-red)">—</div>
+            <div class="stat-sub">hours per day</div>
+        </div>
+    </div>
+
+    <div class="auto-export-status" id="autoExportStatus"></div>
+
+    <div class="actions">
+        <button class="btn btn-export" onclick="exportToExcel()">&#8595; Export All to Excel</button>
+        <button class="btn btn-clear" onclick="clearWeek()">Clear This Week</button>
+    </div>
+</main>
+
+<footer>Time Tracker &bull; Data saved locally</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+    const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
+
+    // Maps data field names to their DOM input ID suffixes.
+    const FIELD_ID = { startTime: 'start', lunchStart: 'lunchStart', lunchEnd: 'lunchEnd', endTime: 'end' };
+
+    let currentWeekStart = getMonday(new Date());
+
+    // Use local date parts to avoid UTC shift for Australian (UTC+10) users.
+    function localDateStr(date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+
+    function getMonday(d) {
+        const date = new Date(d);
+        const day = date.getDay();
+        const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+        date.setDate(diff);
+        date.setHours(0,0,0,0);
+        return date;
+    }
+
+    function isSameDay(a, b) {
+        return a.getFullYear() === b.getFullYear() &&
+               a.getMonth() === b.getMonth() &&
+               a.getDate() === b.getDate();
+    }
+
+    function fmt(date) {
+        return date.toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
+    }
+
+    function fmtShort(date) {
+        return date.toLocaleDateString('en-AU', { day:'2-digit', month:'short' });
+    }
+
+    function weekKey(monday) {
+        return localDateStr(monday);
+    }
+
+    function getWeekData() {
+        const stored = localStorage.getItem('lfc_' + weekKey(currentWeekStart));
+        return stored ? JSON.parse(stored) : {};
+    }
+
+    function saveWeekData(data) {
+        localStorage.setItem('lfc_' + weekKey(currentWeekStart), JSON.stringify(data));
+    }
+
+    function toMins(t) {
+        if (!t) return null;
+        const [h,m] = t.split(':').map(Number);
+        return h * 60 + m;
+    }
+
+    function minsToStr(mins) {
+        if (mins === null || mins < 0) return null;
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        return `${h}h ${m.toString().padStart(2,'0')}m`;
+    }
+
+    function minsToDecimal(mins) {
+        if (mins === null) return null;
+        return Math.round(mins / 60 * 100) / 100;
+    }
+
+    // Only deducts lunch when all four times are logically ordered.
+    function calcDay(d) {
+        const s  = toMins(d.startTime);
+        const e  = toMins(d.endTime);
+        if (s === null || e === null || e <= s) return null;
+
+        const ls = toMins(d.lunchStart);
+        const le = toMins(d.lunchEnd);
+
+        let worked = e - s;
+        const lunchValid = ls !== null && le !== null && le > ls && ls >= s && le <= e;
+        if (lunchValid) worked -= (le - ls);
+        return Math.max(worked, 0);
+    }
+
+    // Returns an object describing which time fields are invalid for a given day's data.
+    function getValidationErrors(d) {
+        const s  = toMins(d.startTime);
+        const ls = toMins(d.lunchStart);
+        const le = toMins(d.lunchEnd);
+        const e  = toMins(d.endTime);
+
+        const lsErr = s !== null && ls !== null && ls <= s;
+        const leErr = ls !== null && le !== null && le <= ls;
+
+        const endBeforeStart    = s !== null && e !== null && ls === null && le === null && e <= s;
+        const endBeforeLunchEnd = !leErr && le !== null && e !== null && e <= le;
+        const endBeforeLunchSt  = !lsErr && ls !== null && le === null && e !== null && e <= ls;
+        const eErr = endBeforeStart || endBeforeLunchEnd || endBeforeLunchSt;
+
+        let endMsg = 'Must be after start time';
+        if (endBeforeLunchEnd) endMsg = 'Must be after lunch end';
+        else if (endBeforeLunchSt) endMsg = 'Must be after lunch start';
+
+        return { lsErr, leErr, eErr, endMsg };
+    }
+
+    function applyValidation(dateKey, d) {
+        const { lsErr, leErr, eErr, endMsg } = getValidationErrors(d);
+        setFieldError(`inp_${dateKey}_lunchStart`, `err_${dateKey}_lunchStart`, lsErr, 'Must be after start time');
+        setFieldError(`inp_${dateKey}_lunchEnd`,   `err_${dateKey}_lunchEnd`,   leErr, 'Must be after lunch start');
+        setFieldError(`inp_${dateKey}_end`,         `err_${dateKey}_end`,         eErr,  endMsg);
+    }
+
+    function setFieldError(inputId, errorId, isError, msg) {
+        const inp = document.getElementById(inputId);
+        const err = document.getElementById(errorId);
+        if (!inp || !err) return;
+        inp.classList.toggle('invalid', isError);
+        err.textContent = msg;
+        err.classList.toggle('visible', isError);
+    }
+
+    function renderWeek() {
+        const weekData = getWeekData();
+        const today = new Date();
+        const friday = new Date(currentWeekStart);
+        friday.setDate(friday.getDate() + 4);
+
+        document.getElementById('weekLabel').textContent =
+            `${fmt(currentWeekStart)} — ${fmt(friday)}`;
+
+        const grid = document.getElementById('daysGrid');
+        grid.innerHTML = '';
+
+        let weekMins = 0;
+        let daysLogged = 0;
+
+        DAYS.forEach((dayName, i) => {
+            const dayDate = new Date(currentWeekStart);
+            dayDate.setDate(dayDate.getDate() + i);
+            const dateKey = localDateStr(dayDate);
+            const d = weekData[dateKey] || {};
+            const isToday = isSameDay(dayDate, today);
+
+            const dayMins = calcDay(d);
+            if (dayMins !== null) { weekMins += dayMins; daysLogged++; }
+
+            const card = document.createElement('div');
+            card.className = 'day-card' + (isToday ? ' today' : '');
+
+            card.innerHTML = `
+                <div class="day-header">
+                    ${isToday ? '<span class="today-badge">Today</span>' : ''}
+                    <div class="day-name">${dayName}</div>
+                    <div class="day-date">${fmtShort(dayDate)}</div>
+                </div>
+                <div class="day-body">
+                    <div class="field-group">
+                        <label>Start Time</label>
+                        <div class="time-input-row">
+                            <input type="time" id="inp_${dateKey}_start" value="${d.startTime||''}"
+                                onchange="save('${dateKey}','startTime',this.value)">
+                            <button class="btn-now" onclick="setNow('${dateKey}','startTime')">Now</button>
+                        </div>
+                    </div>
+                    <div class="section-divider"><span>Lunch Break</span></div>
+                    <div class="field-group">
+                        <label>Lunch Start</label>
+                        <div class="time-input-row">
+                            <input type="time" id="inp_${dateKey}_lunchStart" value="${d.lunchStart||''}"
+                                onchange="save('${dateKey}','lunchStart',this.value)">
+                            <button class="btn-now" onclick="setNow('${dateKey}','lunchStart')">Now</button>
+                        </div>
+                        <p class="field-error" id="err_${dateKey}_lunchStart"></p>
+                    </div>
+                    <div class="field-group">
+                        <label>Lunch End</label>
+                        <div class="time-input-row">
+                            <input type="time" id="inp_${dateKey}_lunchEnd" value="${d.lunchEnd||''}"
+                                onchange="save('${dateKey}','lunchEnd',this.value)">
+                            <button class="btn-now" onclick="setNow('${dateKey}','lunchEnd')">Now</button>
+                        </div>
+                        <p class="field-error" id="err_${dateKey}_lunchEnd"></p>
+                    </div>
+                    <div class="section-divider"><span>End of Day</span></div>
+                    <div class="field-group">
+                        <label>End Time</label>
+                        <div class="time-input-row">
+                            <input type="time" id="inp_${dateKey}_end" value="${d.endTime||''}"
+                                onchange="save('${dateKey}','endTime',this.value)">
+                            <button class="btn-now" onclick="setNow('${dateKey}','endTime')">Now</button>
+                        </div>
+                        <p class="field-error" id="err_${dateKey}_end"></p>
+                    </div>
+                    <div class="field-group">
+                        <label>Notes</label>
+                        <textarea placeholder="What did you work on?"
+                            oninput="save('${dateKey}','notes',this.value)">${d.notes||''}</textarea>
+                    </div>
+                    <div class="hours-chip">
+                        <div class="hours-chip-label">Hours Worked</div>
+                        <div class="hours-chip-value" id="hrs_${dateKey}">
+                            ${dayMins !== null ? minsToStr(dayMins) : '—'}
+                        </div>
+                    </div>
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+
+        // Apply validation state to any pre-existing data on load.
+        DAYS.forEach((_, i) => {
+            const dayDate = new Date(currentWeekStart);
+            dayDate.setDate(dayDate.getDate() + i);
+            const dateKey = localDateStr(dayDate);
+            const d = weekData[dateKey];
+            if (d) applyValidation(dateKey, d);
+        });
+
+        updateSummary(weekMins, daysLogged);
+    }
+
+    function updateSummary(weekMins, daysLogged) {
+        document.getElementById('statTotal').textContent = minsToStr(weekMins) || '0h 00m';
+        document.getElementById('statTotalDecimal').textContent =
+            (minsToDecimal(weekMins) || 0).toFixed(2) + ' hours';
+        document.getElementById('statDays').textContent = daysLogged + ' / 5';
+
+        if (daysLogged > 0) {
+            const avg = Math.round(weekMins / daysLogged);
+            document.getElementById('statAvg').textContent = minsToStr(avg);
+        } else {
+            document.getElementById('statAvg').textContent = '—';
+        }
+    }
+
+    function save(dateKey, field, value) {
+        const weekData = getWeekData();
+        if (!weekData[dateKey]) weekData[dateKey] = {};
+        weekData[dateKey][field] = value;
+        saveWeekData(weekData);
+
+        const d = weekData[dateKey];
+        applyValidation(dateKey, d);
+
+        const dayMins = calcDay(d);
+        const el = document.getElementById('hrs_' + dateKey);
+        if (el) el.textContent = dayMins !== null ? minsToStr(dayMins) : '—';
+
+        let weekMins = 0, daysLogged = 0;
+        Object.values(weekData).forEach(day => {
+            const m = calcDay(day);
+            if (m !== null) { weekMins += m; daysLogged++; }
+        });
+        updateSummary(weekMins, daysLogged);
+    }
+
+    function changeWeek(dir) {
+        const d = new Date(currentWeekStart);
+        d.setDate(d.getDate() + dir * 7);
+        currentWeekStart = d;
+        renderWeek();
+    }
+
+    function goToToday() {
+        currentWeekStart = getMonday(new Date());
+        renderWeek();
+    }
+
+    function clearWeek() {
+        if (!confirm('Clear all entries for this week?')) return;
+        localStorage.removeItem('lfc_' + weekKey(currentWeekStart));
+        renderWeek();
+        showToast('Week cleared');
+    }
+
+    function exportToExcel() {
+        const allKeys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k.startsWith('lfc_')) allKeys.push(k);
+        }
+        allKeys.sort();
+
+        if (allKeys.length === 0) {
+            showToast('No data to export yet!');
+            return;
+        }
+
+        const detailRows = [];
+        const summaryRows = [];
+
+        allKeys.forEach(sk => {
+            const weekData = JSON.parse(localStorage.getItem(sk));
+            // Parse stored date string into a local-midnight Date to avoid UTC shift.
+            const [yr, mo, dy] = sk.replace('lfc_', '').split('-').map(Number);
+            const monday = new Date(yr, mo - 1, dy);
+            let weekMins = 0;
+
+            DAYS.forEach((dayName, i) => {
+                const dayDate = new Date(monday);
+                dayDate.setDate(dayDate.getDate() + i);
+                const dateKey = localDateStr(dayDate);
+                const d = weekData[dateKey] || {};
+
+                const ls = toMins(d.lunchStart);
+                const le = toMins(d.lunchEnd);
+                const s  = toMins(d.startTime);
+                const e  = toMins(d.endTime);
+                const lunchValid = ls !== null && le !== null && le > ls && s !== null && ls >= s && e !== null && le <= e;
+                let lunchStr = '';
+                if (lunchValid) {
+                    const lm = le - ls;
+                    lunchStr = `${Math.floor(lm/60)}h ${(lm%60).toString().padStart(2,'0')}m`;
+                }
+
+                const dayMins = calcDay(d);
+                if (dayMins !== null) weekMins += dayMins;
+
+                detailRows.push({
+                    'Week Starting': fmt(monday),
+                    'Day': dayName,
+                    'Date': fmt(dayDate),
+                    'Start Time': d.startTime || '',
+                    'Lunch Start': d.lunchStart || '',
+                    'Lunch End': d.lunchEnd || '',
+                    'Lunch Duration': lunchStr,
+                    'End Time': d.endTime || '',
+                    'Hours Worked': dayMins !== null ? minsToStr(dayMins) : '',
+                    'Hours (Decimal)': dayMins !== null ? minsToDecimal(dayMins) : '',
+                    'Notes': d.notes || ''
+                });
+            });
+
+            const friday = new Date(monday);
+            friday.setDate(friday.getDate() + 4);
+            summaryRows.push({
+                'Week Starting': fmt(monday),
+                'Week Ending': fmt(friday),
+                'Total Hours': minsToStr(weekMins),
+                'Total Hours (Decimal)': minsToDecimal(weekMins),
+                'Days Logged': Object.values(weekData).filter(d => calcDay(d) !== null).length
+            });
+        });
+
+        const wb = XLSX.utils.book_new();
+
+        const ws1 = XLSX.utils.json_to_sheet(detailRows);
+        ws1['!cols'] = [
+            {wch:16},{wch:12},{wch:12},{wch:12},
+            {wch:12},{wch:12},{wch:16},{wch:12},
+            {wch:14},{wch:18},{wch:35}
+        ];
+        XLSX.utils.book_append_sheet(wb, ws1, 'Time Records');
+
+        const ws2 = XLSX.utils.json_to_sheet(summaryRows);
+        ws2['!cols'] = [{wch:16},{wch:14},{wch:14},{wch:22},{wch:14}];
+        XLSX.utils.book_append_sheet(wb, ws2, 'Weekly Summary');
+
+        const today = new Date();
+        const filename = `LFC_TimeTracker_${localDateStr(today)}.xlsx`;
+        XLSX.writeFile(wb, filename);
+        showToast('Excel file exported!');
+    }
+
+    function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    // Sets a time field to the current local time and saves.
+    function setNow(dateKey, field) {
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+        const input = document.getElementById(`inp_${dateKey}_${FIELD_ID[field]}`);
+        if (input) input.value = timeStr;
+        save(dateKey, field, timeStr);
+    }
+
+    // Auto-export every Friday at 6PM. Uses localStorage to avoid re-triggering if
+    // the tab is still open or refreshed after the export already ran this week.
+    function checkAutoExport() {
+        const now = new Date();
+        if (now.getDay() !== 5 || now.getHours() !== 18) return;
+        const thisWeek = weekKey(getMonday(now));
+        if (localStorage.getItem('lfc_autoexport_last') === thisWeek) return;
+        localStorage.setItem('lfc_autoexport_last', thisWeek);
+        exportToExcel();
+        showToast('Friday 6PM — auto-export complete!');
+        updateAutoExportStatus();
+    }
+
+    function updateAutoExportStatus() {
+        const el = document.getElementById('autoExportStatus');
+        if (!el) return;
+        const now = new Date();
+        const thisWeek = weekKey(getMonday(now));
+        const done = localStorage.getItem('lfc_autoexport_last') === thisWeek;
+
+        if (done) {
+            el.textContent = '✓ This week\'s Friday export has been sent';
+            el.className = 'auto-export-status done';
+        } else {
+            // Find the coming Friday at 18:00
+            const daysAhead = (5 - now.getDay() + 7) % 7 || (now.getHours() >= 18 ? 7 : 0);
+            const nextFri = new Date(now);
+            nextFri.setDate(now.getDate() + daysAhead);
+            nextFri.setHours(18, 0, 0, 0);
+            el.textContent = `Auto-export scheduled: ${fmtShort(nextFri)} at 6:00 PM (tab must be open)`;
+            el.className = 'auto-export-status';
+        }
+    }
+
+    renderWeek();
+    updateAutoExportStatus();
+    setInterval(checkAutoExport, 60000);   // Poll every minute
+    setInterval(updateAutoExportStatus, 60000);
+</script>
+</body>
+</html>
