@@ -319,6 +319,29 @@
         else setSyncStatus('idle');
     }
 
+    const DEFAULTS = { startTime: '08:30', lunchStart: '12:45', lunchEnd: '13:30', endTime: '17:00' };
+
+    function fillDefaults(dateKey) {
+        const weekData = getWeekData();
+        if (!weekData[dateKey]) weekData[dateKey] = {};
+        Object.entries(DEFAULTS).forEach(([field, value]) => {
+            weekData[dateKey][field] = value;
+            const input = document.getElementById(`inp_${dateKey}_${FIELD_ID[field]}`);
+            if (input) input.value = value;
+        });
+        saveWeekData(weekData);
+        applyValidation(dateKey, weekData[dateKey]);
+        const el = document.getElementById('hrs_' + dateKey);
+        if (el) el.textContent = minsToStr(calcDay(weekData[dateKey])) || '—';
+        let weekMins = 0, daysLogged = 0;
+        Object.values(weekData).forEach(day => {
+            const m = calcDay(day);
+            if (m !== null) { weekMins += m; daysLogged++; }
+        });
+        updateSummary(weekMins, daysLogged);
+        debouncedSync();
+    }
+
     function resetDay(dateKey) {
         const weekData = getWeekData();
         if (!weekData[dateKey]) return;
@@ -372,18 +395,19 @@
 
             card.innerHTML = `
                 <div class="day-header">
-                    <button class="btn-reset-day" onclick="resetDay('${dateKey}')" title="Reset time fields">&#8635;</button>
+                    <button class="btn-reset-day" tabindex="-1" onclick="resetDay('${dateKey}')" title="Reset time fields">&#8635;</button>
                     ${isToday ? '<span class="today-badge">Today</span>' : ''}
                     <div class="day-name">${dayName}</div>
                     <div class="day-date">${fmtShort(dayDate)}</div>
                 </div>
                 <div class="day-body">
+                    <button class="btn-fill-defaults" tabindex="-1" onclick="fillDefaults('${dateKey}')">&#9889; Fill Defaults</button>
                     <div class="field-group">
                         <label>Start Time</label>
                         <div class="time-input-row">
                             <input type="time" id="inp_${dateKey}_start" value="${d.startTime||''}"
                                 onchange="save('${dateKey}','startTime',this.value)">
-                            <button class="btn-now" onclick="setNow('${dateKey}','startTime')">Now</button>
+                            <button class="btn-now" tabindex="-1" onclick="setNow('${dateKey}','startTime')">Now</button>
                         </div>
                     </div>
                     <div class="section-divider"><span>Lunch Break</span></div>
@@ -392,7 +416,7 @@
                         <div class="time-input-row">
                             <input type="time" id="inp_${dateKey}_lunchStart" value="${d.lunchStart||''}"
                                 onchange="save('${dateKey}','lunchStart',this.value)">
-                            <button class="btn-now" onclick="setNow('${dateKey}','lunchStart')">Now</button>
+                            <button class="btn-now" tabindex="-1" onclick="setNow('${dateKey}','lunchStart')">Now</button>
                         </div>
                         <p class="field-error" id="err_${dateKey}_lunchStart"></p>
                     </div>
@@ -401,7 +425,7 @@
                         <div class="time-input-row">
                             <input type="time" id="inp_${dateKey}_lunchEnd" value="${d.lunchEnd||''}"
                                 onchange="save('${dateKey}','lunchEnd',this.value)">
-                            <button class="btn-now" onclick="setNow('${dateKey}','lunchEnd')">Now</button>
+                            <button class="btn-now" tabindex="-1" onclick="setNow('${dateKey}','lunchEnd')">Now</button>
                         </div>
                         <p class="field-error" id="err_${dateKey}_lunchEnd"></p>
                     </div>
@@ -411,7 +435,7 @@
                         <div class="time-input-row">
                             <input type="time" id="inp_${dateKey}_end" value="${d.endTime||''}"
                                 onchange="save('${dateKey}','endTime',this.value)">
-                            <button class="btn-now" onclick="setNow('${dateKey}','endTime')">Now</button>
+                            <button class="btn-now" tabindex="-1" onclick="setNow('${dateKey}','endTime')">Now</button>
                         </div>
                         <p class="field-error" id="err_${dateKey}_end"></p>
                     </div>

@@ -699,6 +699,29 @@ footer {
     justify-content: flex-end;
 }
 
+/* ===== FILL DEFAULTS BUTTON ===== */
+.btn-fill-defaults {
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1.5px dashed var(--border-2);
+    background: transparent;
+    color: var(--text-3);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-bottom: 10px;
+}
+
+.day-0 .btn-fill-defaults:hover { color: #7C3AED; border-color: #7C3AED; background: rgba(124,58,237,0.07); }
+.day-1 .btn-fill-defaults:hover { color: #2563EB; border-color: #2563EB; background: rgba(37,99,235,0.07); }
+.day-2 .btn-fill-defaults:hover { color: #0891B2; border-color: #0891B2; background: rgba(8,145,178,0.07); }
+.day-3 .btn-fill-defaults:hover { color: #EA580C; border-color: #EA580C; background: rgba(234,88,12,0.07); }
+.day-4 .btn-fill-defaults:hover { color: #DB2777; border-color: #DB2777; background: rgba(219,39,119,0.07); }
+
 /* ===== TOAST ===== */
 .toast {
     position: fixed;
