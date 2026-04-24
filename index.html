@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Time Tracker</title>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -55,7 +55,7 @@
     </div>
 </main>
 
-<footer>Time Tracker &bull; Data saved locally &amp; synced to GitHub &bull; v1.5</footer>
+<footer>Time Tracker &bull; Data saved locally &amp; synced to GitHub &bull; v1.6</footer>
 
 <div class="modal-backdrop" id="settingsModal">
     <div class="modal">
@@ -319,7 +319,16 @@
         else setSyncStatus('idle');
     }
 
-    const DEFAULTS = { startTime: '08:30', lunchStart: '12:45', lunchEnd: '13:30', endTime: '17:00' };
+    const DEFAULTS   = { startTime: '08:30', lunchStart: '12:45', lunchEnd: '13:30', endTime: '17:00' };
+    const TIME_FIELDS = new Set(['startTime', 'lunchStart', 'lunchEnd', 'endTime']);
+
+    function snapToFive(val) {
+        if (!val) return val;
+        const [h, m] = val.split(':').map(Number);
+        const snapped = Math.round(m / 5) * 5;
+        if (snapped >= 60) return `${String((h + 1) % 24).padStart(2,'0')}:00`;
+        return `${String(h).padStart(2,'0')}:${String(snapped).padStart(2,'0')}`;
+    }
 
     function fillDefaults(dateKey) {
         const weekData = getWeekData();
@@ -487,6 +496,11 @@
     }
 
     function save(dateKey, field, value) {
+        if (TIME_FIELDS.has(field) && value) {
+            value = snapToFive(value);
+            const inp = document.getElementById(`inp_${dateKey}_${FIELD_ID[field]}`);
+            if (inp && inp.value !== value) inp.value = value;
+        }
         const weekData = getWeekData();
         if (!weekData[dateKey]) weekData[dateKey] = {};
         weekData[dateKey][field] = value;
@@ -529,6 +543,10 @@
     }
 
     function exportToExcel() {
+        if (typeof XLSX === 'undefined') {
+            showToast('Export library failed to load — please hard-refresh (Ctrl+Shift+R)');
+            return;
+        }
         const allKeys = [];
         for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
@@ -624,10 +642,14 @@
         setTimeout(() => t.classList.remove('show'), 3000);
     }
 
-    // Sets a time field to the current local time and saves.
+    // Sets a time field to the current local time (snapped to 5 min) and saves.
     function setNow(dateKey, field) {
         const now = new Date();
-        const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+        const rawMins = now.getHours() * 60 + now.getMinutes();
+        const snapped = Math.round(rawMins / 5) * 5;
+        const h = Math.floor(snapped / 60) % 24;
+        const m = snapped % 60;
+        const timeStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
         const input = document.getElementById(`inp_${dateKey}_${FIELD_ID[field]}`);
         if (input) input.value = timeStr;
         save(dateKey, field, timeStr);
