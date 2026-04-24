@@ -5,6 +5,12 @@
       "lunchStart": "12:45",
       "lunchEnd": "13:30",
       "endTime": "17:00"
+    },
+    "2026-04-23": {
+      "startTime": "08:30",
+      "lunchStart": "12:45",
+      "lunchEnd": "13:30",
+      "endTime": "17:00"
     }
   }
 }
