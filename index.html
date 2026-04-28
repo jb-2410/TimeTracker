@@ -37,6 +37,10 @@
             <div class="stat-label">Weekly Total</div>
             <div class="stat-value" id="statTotal">0h 00m</div>
             <div class="stat-sub" id="statTotalDecimal">0.00 hours</div>
+            <div class="progress-bar-track">
+                <div class="progress-bar-fill" id="progressBarFill"></div>
+            </div>
+            <div class="progress-bar-label" id="progressBarLabel">37h 30m to go</div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Days Logged</div>
@@ -52,6 +56,11 @@
             <div class="stat-label">Week Streak</div>
             <div class="stat-value" id="statStreak">—</div>
             <div class="stat-sub" id="statStreakSub">complete weeks</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Flex Balance</div>
+            <div class="stat-value" id="statFlex">—</div>
+            <div class="stat-sub" id="statFlexSub">vs 37.5h target</div>
         </div>
     </div>
 
@@ -127,6 +136,7 @@
 
 <script>
     const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
+    const TARGET_MINS = Math.round(37.5 * 60); // 2250 = 37h 30m weekly target
 
     // Maps data field names to their DOM input ID suffixes.
     const FIELD_ID = { startTime: 'start', lunchStart: 'lunchStart', lunchEnd: 'lunchEnd', endTime: 'end' };
@@ -565,7 +575,21 @@
             avgEl.textContent = '—';
             avgEl.style.color = '';
         }
+
+        const pct = Math.min(weekMins / TARGET_MINS * 100, 100);
+        const fill = document.getElementById('progressBarFill');
+        const lbl  = document.getElementById('progressBarLabel');
+        if (fill && lbl) {
+            fill.style.width = pct.toFixed(1) + '%';
+            fill.style.background = pct >= 100 ? '#34D399' : pct >= 60 ? '#FCD34D' : '#F87171';
+            const rem = TARGET_MINS - weekMins;
+            lbl.textContent = rem > 0
+                ? minsToStr(rem) + ' to go'
+                : '+' + minsToStr(-rem) + ' over target';
+        }
+
         updateStreakStat();
+        updateFlexStat();
         updateLiveTimer();
     }
 
@@ -956,6 +980,46 @@
             el.style.color = '';
         }
         sub.textContent = `best ${longest} · ${total} total`;
+    }
+
+    // ===== Flex Balance =====
+
+    function computeFlexBalance() {
+        let flexMins = 0;
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (!k || !k.startsWith('lfc_') || k.startsWith('lfc_autoexport')) continue;
+            let weekData;
+            try { weekData = JSON.parse(localStorage.getItem(k)); } catch { continue; }
+            if (!weekData || typeof weekData !== 'object') continue;
+            let weekMins = 0, daysLogged = 0;
+            Object.values(weekData).forEach(d => {
+                const m = calcDay(d);
+                if (m !== null) { weekMins += m; daysLogged++; }
+            });
+            if (daysLogged >= 1) flexMins += weekMins - TARGET_MINS;
+        }
+        return flexMins;
+    }
+
+    function updateFlexStat() {
+        const flexMins = computeFlexBalance();
+        const el  = document.getElementById('statFlex');
+        const sub = document.getElementById('statFlexSub');
+        if (!el || !sub) return;
+        if (flexMins === 0) {
+            el.textContent = '0h 00m';
+            el.style.color = '';
+            sub.textContent = 'on target';
+        } else if (flexMins > 0) {
+            el.textContent = '+' + minsToStr(flexMins);
+            el.style.color = '#059669';
+            sub.textContent = 'banked time';
+        } else {
+            el.textContent = '−' + minsToStr(-flexMins);
+            el.style.color = '#DC2626';
+            sub.textContent = 'time owed';
+        }
     }
 
     // ===== Month View =====
