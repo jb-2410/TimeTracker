@@ -24,6 +24,7 @@
     <button class="today-btn" onclick="goToToday()">Today</button>
     <span class="sync-pill idle" id="syncPill">No Sync</span>
     <button class="sync-btn" onclick="openSettings()">&#9881; Sync Setup</button>
+    <button class="sync-btn" onclick="openLog()">&#128203; Activity Log</button>
 </div>
 
 <main>
@@ -55,7 +56,7 @@
     </div>
 </main>
 
-<footer>Time Tracker &bull; Data saved locally &amp; synced to GitHub &bull; v1.7</footer>
+<footer>Time Tracker &bull; Data saved locally &amp; synced to GitHub &bull; v1.8</footer>
 
 <div class="modal-backdrop" id="settingsModal">
     <div class="modal">
@@ -80,6 +81,25 @@
     </div>
 </div>
 
+<div class="modal-backdrop" id="logModal">
+    <div class="modal modal-log">
+        <div class="modal-header">
+            <div class="modal-title">Activity Log</div>
+            <button class="modal-close-btn" onclick="closeLog()">&#215;</button>
+        </div>
+        <div class="log-tabs">
+            <button class="log-tab active" data-tab="activity" onclick="switchLogTab('activity')">Activity</button>
+            <button class="log-tab" data-tab="exports" onclick="switchLogTab('exports')">Export History</button>
+        </div>
+        <div class="log-content" id="logContent"></div>
+        <hr class="modal-divider">
+        <div class="modal-actions">
+            <button class="btn btn-clear btn-sm" onclick="clearAppLog()">Clear Log</button>
+            <button class="btn btn-clear" onclick="closeLog()">Close</button>
+        </div>
+    </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -87,6 +107,31 @@
 
     // Maps data field names to their DOM input ID suffixes.
     const FIELD_ID = { startTime: 'start', lunchStart: 'lunchStart', lunchEnd: 'lunchEnd', endTime: 'end' };
+
+    // ===== Logging =====
+    const APP_VERSION = '1.8';
+    const LOG_KEY = 'tt_log';
+    const LOG_VER_KEY = 'tt_version';
+    const MAX_LOG_ENTRIES = 500;
+
+    function addLog(type, detail) {
+        const entries = readLog();
+        entries.unshift({ ts: new Date().toISOString(), type, ...detail });
+        if (entries.length > MAX_LOG_ENTRIES) entries.length = MAX_LOG_ENTRIES;
+        try { localStorage.setItem(LOG_KEY, JSON.stringify(entries)); } catch {}
+    }
+
+    function readLog() {
+        try { return JSON.parse(localStorage.getItem(LOG_KEY)) || []; } catch { return []; }
+    }
+
+    function checkVersionLog() {
+        const prev = localStorage.getItem(LOG_VER_KEY);
+        if (prev !== APP_VERSION) {
+            addLog('version', { from: prev, to: APP_VERSION });
+            localStorage.setItem(LOG_VER_KEY, APP_VERSION);
+        }
+    }
 
     // GitHub sync
     const GH_API = 'https://api.github.com/repos/jb-2410/TimeTracker/contents/data/timedata.json';
@@ -349,6 +394,7 @@
         });
         updateSummary(weekMins, daysLogged);
         debouncedSync();
+        addLog('fill_defaults', { dateKey });
     }
 
     function resetDay(dateKey) {
@@ -370,6 +416,7 @@
         });
         updateSummary(weekMins, daysLogged);
         debouncedSync();
+        addLog('reset_day', { dateKey });
     }
 
     // ===== Render =====
@@ -495,6 +542,8 @@
         }
     }
 
+    const noteLogTimers = {};
+
     function save(dateKey, field, value) {
         if (TIME_FIELDS.has(field) && value) {
             value = snapToFive(value);
@@ -520,6 +569,14 @@
         });
         updateSummary(weekMins, daysLogged);
         debouncedSync();
+
+        if (TIME_FIELDS.has(field)) {
+            addLog('entry_change', { dateKey, field, value });
+        } else if (field === 'notes') {
+            clearTimeout(noteLogTimers[dateKey]);
+            noteLogTimers[dateKey] = setTimeout(() =>
+                addLog('entry_change', { dateKey, field: 'notes', value: !!value }), 2000);
+        }
     }
 
     function changeWeek(dir) {
@@ -536,13 +593,15 @@
 
     function clearWeek() {
         if (!confirm('Clear all entries for this week?')) return;
+        const wLabel = fmt(currentWeekStart);
         localStorage.removeItem('lfc_' + weekKey(currentWeekStart));
         renderWeek();
         showToast('Week cleared');
         debouncedSync();
+        addLog('clear_week', { weekLabel: wLabel });
     }
 
-    function exportToExcel() {
+    function exportToExcel(trigger = 'manual') {
         if (typeof XLSX === 'undefined') {
             alert('Export library failed to load. Please hard-refresh (Ctrl+Shift+R) and try again.');
             return;
@@ -644,6 +703,8 @@
             a.click();
             document.body.removeChild(a);
             setTimeout(() => URL.revokeObjectURL(url), 1000);
+            const recordCount = detailRows.filter(r => r['Hours Worked']).length;
+            addLog('export', { filename, trigger, weekCount: allKeys.length, recordCount });
             showToast('Excel file exported!');
         } catch (e) {
             alert('Export failed: ' + (e.message || String(e)));
@@ -678,7 +739,7 @@
         const thisWeek = weekKey(getMonday(now));
         if (localStorage.getItem('lfc_autoexport_last') === thisWeek) return;
         localStorage.setItem('lfc_autoexport_last', thisWeek);
-        exportToExcel();
+        exportToExcel('auto');
         showToast('Friday 6PM — auto-export complete!');
         updateAutoExportStatus();
     }
@@ -704,6 +765,105 @@
         }
     }
 
+    // ===== Activity Log UI =====
+
+    let activeLogTab = 'activity';
+
+    function openLog() {
+        activeLogTab = 'activity';
+        document.querySelectorAll('.log-tab').forEach(b =>
+            b.classList.toggle('active', b.dataset.tab === 'activity'));
+        renderLogContent();
+        document.getElementById('logModal').classList.add('open');
+    }
+
+    function closeLog() {
+        document.getElementById('logModal').classList.remove('open');
+    }
+
+    function switchLogTab(tab) {
+        activeLogTab = tab;
+        document.querySelectorAll('.log-tab').forEach(b =>
+            b.classList.toggle('active', b.dataset.tab === tab));
+        renderLogContent();
+    }
+
+    function renderLogContent() {
+        const entries = readLog();
+        const showExports = activeLogTab === 'exports';
+        const filtered = entries.filter(e => showExports ? e.type === 'export' : e.type !== 'export');
+        const el = document.getElementById('logContent');
+        if (filtered.length === 0) {
+            el.innerHTML = '<div class="log-empty">No entries yet.</div>';
+            return;
+        }
+        el.innerHTML = filtered.map(entry => {
+            const ts = new Date(entry.ts);
+            const dateStr = ts.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
+            const timeStr = ts.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: true });
+            const { icon, text } = formatLogEntry(entry);
+            return `<div class="log-entry">
+                <div class="log-entry-icon">${icon}</div>
+                <div class="log-entry-body">
+                    <div class="log-entry-text">${text}</div>
+                    <div class="log-entry-time">${dateStr} at ${timeStr}</div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function formatDayKey(dateKey) {
+        if (!dateKey) return dateKey;
+        const [y, m, d] = dateKey.split('-').map(Number);
+        return new Date(y, m - 1, d).toLocaleDateString('en-AU',
+            { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+    }
+
+    function formatLogEntry(e) {
+        const FIELD_LABELS = {
+            startTime: 'Start Time', lunchStart: 'Lunch Start',
+            lunchEnd: 'Lunch End', endTime: 'End Time', notes: 'Notes'
+        };
+        switch (e.type) {
+            case 'version':
+                return {
+                    icon: '&#128260;',
+                    text: e.from ? `App updated v${e.from} &#8594; v${e.to}` : `App initialised at v${e.to}`
+                };
+            case 'entry_change': {
+                const label = FIELD_LABELS[e.field] || e.field;
+                const day = formatDayKey(e.dateKey);
+                if (e.field === 'notes') {
+                    return { icon: '&#9998;', text: `Notes ${e.value ? 'updated' : 'cleared'} &mdash; ${day}` };
+                }
+                const val = e.value || '<em>cleared</em>';
+                return { icon: '&#9998;', text: `${label} set to ${val} &mdash; ${day}` };
+            }
+            case 'fill_defaults':
+                return { icon: '&#9889;', text: `Defaults filled &mdash; ${formatDayKey(e.dateKey)}` };
+            case 'reset_day':
+                return { icon: '&#8635;', text: `Times reset &mdash; ${formatDayKey(e.dateKey)}` };
+            case 'clear_week':
+                return { icon: '&#128465;', text: `Week cleared &mdash; w/c ${e.weekLabel}` };
+            case 'export':
+                return {
+                    icon: '&#8595;',
+                    text: `${e.trigger === 'auto' ? 'Auto-export' : 'Export'}: ${e.filename} &mdash; ${e.recordCount} days across ${e.weekCount} weeks`
+                };
+            default:
+                return { icon: '&bull;', text: e.type };
+        }
+    }
+
+    function clearAppLog() {
+        const pwd = prompt('Enter password to clear the log:');
+        if (pwd === null) return;
+        if (pwd !== 'Bally2410') { alert('Incorrect password.'); return; }
+        localStorage.removeItem(LOG_KEY);
+        renderLogContent();
+    }
+
+    checkVersionLog();
     renderWeek();
     updateAutoExportStatus();
     setInterval(checkAutoExport, 60000);   // Poll every minute

@@ -743,3 +743,111 @@ footer {
 }
 
 .toast.show { opacity: 1; transform: translateY(0); }
+
+/* ===== ACTIVITY LOG MODAL ===== */
+.modal-log {
+    max-width: 580px;
+}
+
+.modal-close-btn {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--text-3);
+    font-size: 1.3rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.modal-close-btn:hover {
+    color: var(--text);
+    background: var(--surface-3);
+}
+
+.log-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--surface-3);
+    border-radius: 10px;
+    padding: 4px;
+    margin-bottom: 14px;
+}
+
+.log-tab {
+    flex: 1;
+    padding: 7px 12px;
+    border: none;
+    border-radius: 7px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    background: transparent;
+    color: var(--text-3);
+    transition: all 0.15s;
+}
+
+.log-tab.active {
+    background: var(--surface);
+    color: var(--accent);
+    box-shadow: var(--shadow-sm);
+}
+
+.log-tab:hover:not(.active) { color: var(--text-2); }
+
+.log-content {
+    max-height: 360px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-2);
+}
+
+.log-empty {
+    padding: 32px;
+    text-align: center;
+    color: var(--text-3);
+    font-size: 0.78rem;
+    letter-spacing: 0.5px;
+}
+
+.log-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.log-entry:last-child { border-bottom: none; }
+
+.log-entry-icon {
+    font-size: 0.85rem;
+    flex-shrink: 0;
+    width: 20px;
+    text-align: center;
+    margin-top: 2px;
+    color: var(--text-2);
+}
+
+.log-entry-body { flex: 1; min-width: 0; }
+
+.log-entry-text {
+    font-size: 0.78rem;
+    color: var(--text);
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.log-entry-time {
+    font-size: 0.62rem;
+    color: var(--text-3);
+    margin-top: 2px;
+    letter-spacing: 0.3px;
+}
+
+.btn-sm { padding: 7px 14px; font-size: 0.72rem; }
