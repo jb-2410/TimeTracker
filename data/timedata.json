@@ -32,12 +32,7 @@
       "lunchEnd": "13:30",
       "endTime": "17:00"
     },
-    "2026-04-30": {
-      "startTime": "14:45",
-      "lunchStart": "14:45",
-      "lunchEnd": "14:45",
-      "endTime": "14:45"
-    },
+    "2026-04-30": {},
     "2026-05-01": {
       "startTime": "08:30",
       "lunchStart": "12:45",
