@@ -544,94 +544,94 @@
 
     function exportToExcel() {
         if (typeof XLSX === 'undefined') {
-            showToast('Export library failed to load — please hard-refresh (Ctrl+Shift+R)');
+            alert('Export library failed to load. Please hard-refresh (Ctrl+Shift+R) and try again.');
             return;
         }
-        const allKeys = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
-            if (k && k.startsWith('lfc_') && !k.startsWith('lfc_autoexport')) allKeys.push(k);
-        }
-        allKeys.sort();
+        try {
+            const allKeys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith('lfc_') && !k.startsWith('lfc_autoexport')) allKeys.push(k);
+            }
+            allKeys.sort();
 
-        if (allKeys.length === 0) {
-            showToast('No data to export yet!');
-            return;
-        }
+            if (allKeys.length === 0) {
+                showToast('No data to export yet!');
+                return;
+            }
 
-        const detailRows = [];
-        const summaryRows = [];
+            const detailRows = [];
+            const summaryRows = [];
 
-        allKeys.forEach(sk => {
-            const weekData = JSON.parse(localStorage.getItem(sk));
-            // Parse stored date string into a local-midnight Date to avoid UTC shift.
-            const [yr, mo, dy] = sk.replace('lfc_', '').split('-').map(Number);
-            const monday = new Date(yr, mo - 1, dy);
-            let weekMins = 0;
+            allKeys.forEach(sk => {
+                const weekData = JSON.parse(localStorage.getItem(sk));
+                // Parse stored date string into a local-midnight Date to avoid UTC shift.
+                const [yr, mo, dy] = sk.replace('lfc_', '').split('-').map(Number);
+                const monday = new Date(yr, mo - 1, dy);
+                let weekMins = 0;
 
-            DAYS.forEach((dayName, i) => {
-                const dayDate = new Date(monday);
-                dayDate.setDate(dayDate.getDate() + i);
-                const dateKey = localDateStr(dayDate);
-                const d = weekData[dateKey] || {};
+                DAYS.forEach((dayName, i) => {
+                    const dayDate = new Date(monday);
+                    dayDate.setDate(dayDate.getDate() + i);
+                    const dateKey = localDateStr(dayDate);
+                    const d = weekData[dateKey] || {};
 
-                const ls = toMins(d.lunchStart);
-                const le = toMins(d.lunchEnd);
-                const s  = toMins(d.startTime);
-                const e  = toMins(d.endTime);
-                const lunchValid = ls !== null && le !== null && le > ls && s !== null && ls >= s && e !== null && le <= e;
-                let lunchStr = '';
-                if (lunchValid) {
-                    const lm = le - ls;
-                    lunchStr = `${Math.floor(lm/60)}h ${(lm%60).toString().padStart(2,'0')}m`;
-                }
+                    const ls = toMins(d.lunchStart);
+                    const le = toMins(d.lunchEnd);
+                    const s  = toMins(d.startTime);
+                    const e  = toMins(d.endTime);
+                    const lunchValid = ls !== null && le !== null && le > ls && s !== null && ls >= s && e !== null && le <= e;
+                    let lunchStr = '';
+                    if (lunchValid) {
+                        const lm = le - ls;
+                        lunchStr = `${Math.floor(lm/60)}h ${(lm%60).toString().padStart(2,'0')}m`;
+                    }
 
-                const dayMins = calcDay(d);
-                if (dayMins !== null) weekMins += dayMins;
+                    const dayMins = calcDay(d);
+                    if (dayMins !== null) weekMins += dayMins;
 
-                detailRows.push({
+                    detailRows.push({
+                        'Week Starting': fmt(monday),
+                        'Day': dayName,
+                        'Date': fmt(dayDate),
+                        'Start Time': d.startTime || '',
+                        'Lunch Start': d.lunchStart || '',
+                        'Lunch End': d.lunchEnd || '',
+                        'Lunch Duration': lunchStr,
+                        'End Time': d.endTime || '',
+                        'Hours Worked': dayMins !== null ? minsToStr(dayMins) : '',
+                        'Hours (Decimal)': dayMins !== null ? minsToDecimal(dayMins) : '',
+                        'Notes': d.notes || ''
+                    });
+                });
+
+                const friday = new Date(monday);
+                friday.setDate(friday.getDate() + 4);
+                summaryRows.push({
                     'Week Starting': fmt(monday),
-                    'Day': dayName,
-                    'Date': fmt(dayDate),
-                    'Start Time': d.startTime || '',
-                    'Lunch Start': d.lunchStart || '',
-                    'Lunch End': d.lunchEnd || '',
-                    'Lunch Duration': lunchStr,
-                    'End Time': d.endTime || '',
-                    'Hours Worked': dayMins !== null ? minsToStr(dayMins) : '',
-                    'Hours (Decimal)': dayMins !== null ? minsToDecimal(dayMins) : '',
-                    'Notes': d.notes || ''
+                    'Week Ending': fmt(friday),
+                    'Total Hours': minsToStr(weekMins),
+                    'Total Hours (Decimal)': minsToDecimal(weekMins),
+                    'Days Logged': Object.values(weekData).filter(d => calcDay(d) !== null).length
                 });
             });
 
-            const friday = new Date(monday);
-            friday.setDate(friday.getDate() + 4);
-            summaryRows.push({
-                'Week Starting': fmt(monday),
-                'Week Ending': fmt(friday),
-                'Total Hours': minsToStr(weekMins),
-                'Total Hours (Decimal)': minsToDecimal(weekMins),
-                'Days Logged': Object.values(weekData).filter(d => calcDay(d) !== null).length
-            });
-        });
+            const wb = XLSX.utils.book_new();
 
-        const wb = XLSX.utils.book_new();
+            const ws1 = XLSX.utils.json_to_sheet(detailRows);
+            ws1['!cols'] = [
+                {wch:16},{wch:12},{wch:12},{wch:12},
+                {wch:12},{wch:12},{wch:16},{wch:12},
+                {wch:14},{wch:18},{wch:35}
+            ];
+            XLSX.utils.book_append_sheet(wb, ws1, 'Time Records');
 
-        const ws1 = XLSX.utils.json_to_sheet(detailRows);
-        ws1['!cols'] = [
-            {wch:16},{wch:12},{wch:12},{wch:12},
-            {wch:12},{wch:12},{wch:16},{wch:12},
-            {wch:14},{wch:18},{wch:35}
-        ];
-        XLSX.utils.book_append_sheet(wb, ws1, 'Time Records');
+            const ws2 = XLSX.utils.json_to_sheet(summaryRows);
+            ws2['!cols'] = [{wch:16},{wch:14},{wch:14},{wch:22},{wch:14}];
+            XLSX.utils.book_append_sheet(wb, ws2, 'Weekly Summary');
 
-        const ws2 = XLSX.utils.json_to_sheet(summaryRows);
-        ws2['!cols'] = [{wch:16},{wch:14},{wch:14},{wch:22},{wch:14}];
-        XLSX.utils.book_append_sheet(wb, ws2, 'Weekly Summary');
-
-        const today = new Date();
-        const filename = `TimeTracker_${localDateStr(today)}.xlsx`;
-        try {
+            const today = new Date();
+            const filename = `TimeTracker_${localDateStr(today)}.xlsx`;
             const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
             const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
             const url = URL.createObjectURL(blob);
@@ -644,7 +644,7 @@
             setTimeout(() => URL.revokeObjectURL(url), 1000);
             showToast('Excel file exported!');
         } catch (e) {
-            showToast('Export failed: ' + (e.message || 'unknown error'));
+            alert('Export failed: ' + (e.message || String(e)));
         }
     }
 
