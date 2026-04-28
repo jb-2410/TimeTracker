@@ -24,6 +24,8 @@
     <button class="today-btn" onclick="goToToday()">Today</button>
     <span class="sync-pill idle" id="syncPill">No Sync</span>
     <button class="sync-btn" onclick="openSettings()">&#9881; Sync Setup</button>
+    <button class="sync-btn" onclick="openMonthView()">&#128197; Month View</button>
+    <button class="sync-btn" id="notifBtn" onclick="toggleNotifications()">&#128276; Alerts</button>
     <button class="sync-btn" onclick="openLog()">&#128203; Activity Log</button>
 </div>
 
@@ -46,6 +48,11 @@
             <div class="stat-value" id="statAvg">—</div>
             <div class="stat-sub">hours per day</div>
         </div>
+        <div class="stat-card">
+            <div class="stat-label">Week Streak</div>
+            <div class="stat-value" id="statStreak">—</div>
+            <div class="stat-sub" id="statStreakSub">complete weeks</div>
+        </div>
     </div>
 
     <div class="auto-export-status" id="autoExportStatus"></div>
@@ -56,7 +63,7 @@
     </div>
 </main>
 
-<footer>Time Tracker &bull; Data saved locally &amp; synced to GitHub &bull; v1.8</footer>
+<footer>Time Tracker &bull; Data saved locally &amp; synced to GitHub &bull; v1.9</footer>
 
 <div class="modal-backdrop" id="settingsModal">
     <div class="modal">
@@ -100,6 +107,22 @@
     </div>
 </div>
 
+<div class="modal-backdrop" id="monthModal">
+    <div class="modal modal-month">
+        <div class="modal-header">
+            <button class="month-nav-btn" onclick="changeMonth(-1)">&#8592;</button>
+            <div class="modal-title" id="monthModalTitle" style="flex:1;text-align:center;"></div>
+            <button class="month-nav-btn" onclick="changeMonth(1)">&#8594;</button>
+            <button class="modal-close-btn" onclick="closeMonthView()">&#215;</button>
+        </div>
+        <div id="monthContent"></div>
+        <hr class="modal-divider">
+        <div class="modal-actions">
+            <button class="btn btn-clear" onclick="closeMonthView()">Close</button>
+        </div>
+    </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -109,7 +132,7 @@
     const FIELD_ID = { startTime: 'start', lunchStart: 'lunchStart', lunchEnd: 'lunchEnd', endTime: 'end' };
 
     // ===== Logging =====
-    const APP_VERSION = '1.8';
+    const APP_VERSION = '1.9';
     const LOG_KEY = 'tt_log';
     const LOG_VER_KEY = 'tt_version';
     const MAX_LOG_ENTRIES = 500;
@@ -506,6 +529,7 @@
                             ${dayMins !== null ? minsToStr(dayMins) : '—'}
                         </div>
                     </div>
+                    ${isToday ? '<div class="live-timer-chip" id="liveTimerChip" style="display:none;"><span class="live-dot"></span><span class="live-label">Live</span><span class="live-elapsed">—</span></div>' : ''}
                 </div>
             `;
             grid.appendChild(card);
@@ -521,6 +545,7 @@
         });
 
         updateSummary(weekMins, daysLogged);
+        startLiveTimer();
     }
 
     function updateSummary(weekMins, daysLogged) {
@@ -540,6 +565,8 @@
             avgEl.textContent = '—';
             avgEl.style.color = '';
         }
+        updateStreakStat();
+        updateLiveTimer();
     }
 
     const noteLogTimers = {};
@@ -863,9 +890,242 @@
         renderLogContent();
     }
 
+    // ===== Streak & Consistency =====
+
+    function computeStreaks() {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('lfc_') && !k.startsWith('lfc_autoexport')) {
+                keys.push(k.replace('lfc_', ''));
+            }
+        }
+        keys.sort();
+        const total = keys.length;
+        if (total === 0) return { current: 0, longest: 0, total: 0 };
+
+        function daysLogged(wk) {
+            try {
+                const data = JSON.parse(localStorage.getItem('lfc_' + wk)) || {};
+                return Object.values(data).filter(d => calcDay(d) !== null).length;
+            } catch { return 0; }
+        }
+
+        function parseDate(wk) {
+            const [y, m, d] = wk.split('-').map(Number);
+            return new Date(y, m - 1, d);
+        }
+
+        const complete = keys.filter(wk => daysLogged(wk) >= 4);
+        if (complete.length === 0) return { current: 0, longest: 0, total };
+
+        let longest = 1, run = 1;
+        for (let i = 1; i < complete.length; i++) {
+            const diff = (parseDate(complete[i]) - parseDate(complete[i - 1])) / 864e5;
+            if (diff === 7) { run++; if (run > longest) longest = run; }
+            else run = 1;
+        }
+
+        const todayMonday = weekKey(getMonday(new Date()));
+        const lastComplete = complete[complete.length - 1];
+        const diffFromNow = (parseDate(todayMonday) - parseDate(lastComplete)) / 864e5;
+
+        let current = 0;
+        if (diffFromNow <= 7) {
+            current = 1;
+            for (let i = complete.length - 2; i >= 0; i--) {
+                const diff = (parseDate(complete[i + 1]) - parseDate(complete[i])) / 864e5;
+                if (diff === 7) current++;
+                else break;
+            }
+        }
+
+        return { current, longest, total };
+    }
+
+    function updateStreakStat() {
+        const { current, longest, total } = computeStreaks();
+        const el  = document.getElementById('statStreak');
+        const sub = document.getElementById('statStreakSub');
+        if (!el || !sub) return;
+        if (current > 0) {
+            el.textContent = current + (current === 1 ? ' wk' : ' wks');
+            el.style.color = current >= 4 ? '#059669' : current >= 2 ? '#D97706' : '';
+        } else {
+            el.textContent = '—';
+            el.style.color = '';
+        }
+        sub.textContent = `best ${longest} · ${total} total`;
+    }
+
+    // ===== Month View =====
+
+    let monthViewDate = new Date();
+
+    function openMonthView() {
+        monthViewDate = new Date();
+        renderMonthView();
+        document.getElementById('monthModal').classList.add('open');
+    }
+
+    function closeMonthView() {
+        document.getElementById('monthModal').classList.remove('open');
+    }
+
+    function changeMonth(dir) {
+        monthViewDate = new Date(monthViewDate.getFullYear(), monthViewDate.getMonth() + dir, 1);
+        renderMonthView();
+    }
+
+    function renderMonthView() {
+        const year  = monthViewDate.getFullYear();
+        const month = monthViewDate.getMonth();
+
+        document.getElementById('monthModalTitle').textContent =
+            new Date(year, month, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+
+        const lastDay = new Date(year, month + 1, 0);
+        let ptr = getMonday(new Date(year, month, 1));
+
+        const weeks = [];
+        while (ptr <= lastDay) {
+            weeks.push(new Date(ptr));
+            ptr = new Date(ptr);
+            ptr.setDate(ptr.getDate() + 7);
+        }
+
+        let monthTotalMins = 0, monthDaysLogged = 0;
+
+        const rowsHtml = weeks.map(mon => {
+            const wk = weekKey(mon);
+            let weekData = {};
+            try { weekData = JSON.parse(localStorage.getItem('lfc_' + wk)) || {}; } catch {}
+
+            let weekMins = 0;
+            const cells = DAYS.map((_, i) => {
+                const d = new Date(mon);
+                d.setDate(d.getDate() + i);
+                const dk = localDateStr(d);
+                const mins = calcDay(weekData[dk] || {});
+                const inMonth = d.getMonth() === month && d.getFullYear() === year;
+                if (mins !== null && inMonth) { weekMins += mins; monthDaysLogged++; }
+                if (!inMonth) return `<td class="mday mday-out"></td>`;
+                if (mins === null) return `<td class="mday mday-empty">—</td>`;
+                return `<td class="mday mday-logged">${minsToStr(mins)}</td>`;
+            }).join('');
+
+            monthTotalMins += weekMins;
+            const totalCell = weekMins > 0
+                ? `<td class="mday mday-wtotal">${minsToStr(weekMins)}</td>`
+                : `<td class="mday mday-wtotal mday-empty">—</td>`;
+
+            return `<tr><td class="mday mday-week">${fmtShort(mon)}</td>${cells}${totalCell}</tr>`;
+        }).join('');
+
+        document.getElementById('monthContent').innerHTML = `
+            <div class="month-table-wrap">
+                <table class="month-table">
+                    <thead><tr>
+                        <th>Week</th>
+                        <th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th>
+                        <th>Total</th>
+                    </tr></thead>
+                    <tbody>${rowsHtml}</tbody>
+                    <tfoot><tr>
+                        <td colspan="6" class="mday mfoot-label">Month Total</td>
+                        <td class="mday mday-wtotal mfoot-total">${monthTotalMins > 0 ? minsToStr(monthTotalMins) : '—'}</td>
+                    </tr></tfoot>
+                </table>
+            </div>
+            <div class="month-bar">
+                <span>${monthDaysLogged} day${monthDaysLogged !== 1 ? 's' : ''} logged</span>
+                ${monthTotalMins > 0 ? `<span>${minsToDecimal(monthTotalMins).toFixed(2)} hours total</span>` : ''}
+            </div>`;
+    }
+
+    // ===== Live Timer =====
+
+    let liveTimerInterval = null;
+
+    function startLiveTimer() {
+        if (liveTimerInterval) clearInterval(liveTimerInterval);
+        updateLiveTimer();
+        liveTimerInterval = setInterval(updateLiveTimer, 30000);
+    }
+
+    function updateLiveTimer() {
+        const el = document.getElementById('liveTimerChip');
+        if (!el) return;
+
+        const today = new Date();
+        const dateKey = localDateStr(today);
+        const todayMonday = getMonday(today);
+
+        let todayData = {};
+        try {
+            const stored = JSON.parse(localStorage.getItem('lfc_' + weekKey(todayMonday))) || {};
+            todayData = stored[dateKey] || {};
+        } catch {}
+
+        const startMins = toMins(todayData.startTime);
+        const endMins   = toMins(todayData.endTime);
+
+        if (startMins === null || endMins !== null) { el.style.display = 'none'; return; }
+
+        const nowMins = today.getHours() * 60 + today.getMinutes();
+        if (nowMins < startMins) { el.style.display = 'none'; return; }
+
+        let elapsed = nowMins - startMins;
+        const ls = toMins(todayData.lunchStart);
+        const le = toMins(todayData.lunchEnd);
+        if (ls !== null && le !== null && le > ls && ls >= startMins) {
+            elapsed -= (Math.min(le, nowMins) - Math.min(ls, nowMins));
+        } else if (ls !== null && le === null && ls >= startMins && ls < nowMins) {
+            elapsed -= (nowMins - ls);
+        }
+        elapsed = Math.max(elapsed, 0);
+
+        el.style.display = 'flex';
+        el.querySelector('.live-elapsed').textContent = minsToStr(elapsed);
+        maybeNotifyClockOut(today, elapsed, todayData);
+    }
+
+    function maybeNotifyClockOut(now, elapsedMins, todayData) {
+        if (now.getHours() < 17 || (now.getHours() === 17 && now.getMinutes() < 30)) return;
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        const sentKey = 'tt_notif_sent_' + localDateStr(now);
+        if (localStorage.getItem(sentKey)) return;
+        localStorage.setItem(sentKey, '1');
+        new Notification('Time Tracker — Clock Out Reminder', {
+            body: `Started at ${todayData.startTime}, ${minsToStr(elapsedMins)} elapsed. Don't forget to log your end time!`
+        });
+    }
+
+    function toggleNotifications() {
+        if (!('Notification' in window)) { showToast('Notifications not supported in this browser.'); return; }
+        if (Notification.permission === 'granted') { showToast('Clock-out reminders already active!'); return; }
+        Notification.requestPermission().then(perm => {
+            updateNotifBtn();
+            showToast(perm === 'granted' ? 'Clock-out reminders enabled!' : 'Notification permission denied.');
+        });
+    }
+
+    function updateNotifBtn() {
+        const btn = document.getElementById('notifBtn');
+        if (!btn) return;
+        if (!('Notification' in window)) { btn.style.display = 'none'; return; }
+        const active = Notification.permission === 'granted';
+        btn.style.color       = active ? '#059669' : '';
+        btn.style.borderColor = active ? '#059669' : '';
+        btn.title = active ? 'Clock-out reminders active (5:30 PM)' : 'Enable clock-out reminder notifications';
+    }
+
     checkVersionLog();
     renderWeek();
     updateAutoExportStatus();
+    updateStreakStat();
+    updateNotifBtn();
+    startLiveTimer();
     setInterval(checkAutoExport, 60000);   // Poll every minute
     setInterval(updateAutoExportStatus, 60000);
     loadFromGitHub();
