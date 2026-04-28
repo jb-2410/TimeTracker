@@ -564,7 +564,9 @@
             const summaryRows = [];
 
             allKeys.forEach(sk => {
-                const weekData = JSON.parse(localStorage.getItem(sk));
+                let weekData;
+                try { weekData = JSON.parse(localStorage.getItem(sk)); } catch { return; }
+                if (!weekData || typeof weekData !== 'object') return;
                 // Parse stored date string into a local-midnight Date to avoid UTC shift.
                 const [yr, mo, dy] = sk.replace('lfc_', '').split('-').map(Number);
                 const monday = new Date(yr, mo - 1, dy);
